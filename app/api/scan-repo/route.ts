@@ -1,50 +1,41 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { scanRepositoryForEnvironmentVariables } from "@/lib/github";
-import { ACCESS_COOKIE_NAME, verifyAccessToken } from "@/lib/paywall";
+import { scanRepositoryForEnvVars } from "@/lib/github";
+import { PAYWALL_COOKIE_NAME, hasValidPaidCookieValue } from "@/lib/paywall";
 
-const scanSchema = z.object({
-  repo: z.string().min(3)
-});
+interface Body {
+  repo?: string;
+}
 
-export const dynamic = "force-dynamic";
-
-export async function POST(request: Request) {
-  const accessCookie = request.headers
-    .get("cookie")
-    ?.split(";")
-    .map((chunk) => chunk.trim())
-    .find((chunk) => chunk.startsWith(`${ACCESS_COOKIE_NAME}=`))
-    ?.split("=")[1];
-
-  if (!verifyAccessToken(accessCookie)) {
-    return NextResponse.json(
-      { error: "Payment required before scanning repositories." },
-      { status: 402 }
-    );
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  const paidCookie = request.cookies.get(PAYWALL_COOKIE_NAME)?.value;
+  if (!hasValidPaidCookieValue(paidCookie)) {
+    return NextResponse.json({ error: "Paid access is required." }, { status: 402 });
   }
 
-  const payload = await request.json().catch(() => null);
-  const parsed = scanSchema.safeParse(payload);
+  let body: Body;
+  try {
+    body = (await request.json()) as Body;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
 
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid repository input" }, { status: 400 });
+  if (!body.repo || typeof body.repo !== "string") {
+    return NextResponse.json({ error: "Provide a repository URL or owner/repo value." }, { status: 400 });
   }
 
   const session = await getServerSession(authOptions);
-  const token = session?.user?.accessToken;
 
   try {
-    const result = await scanRepositoryForEnvironmentVariables(parsed.data.repo, token);
+    const result = await scanRepositoryForEnvVars({
+      repoInput: body.repo,
+      accessToken: session?.githubAccessToken
+    });
+
     return NextResponse.json(result);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Scan failed. Ensure the repo exists and GitHub auth is connected for private repos.";
-
-    return NextResponse.json({ error: message }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Repository scan failed.";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

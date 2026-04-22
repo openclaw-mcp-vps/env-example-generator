@@ -1,36 +1,33 @@
 {
   "name": "env-example-generator",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
-    "@hookform/resolvers": "^3.9.0",
-    "@lemonsqueezy/lemonsqueezy.js": "^4.0.0",
-    "class-variance-authority": "^0.7.0",
+    "@octokit/rest": "^22.0.0",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "lucide-react": "^0.460.0",
-    "next": "^15.0.3",
-    "next-auth": "^4.24.10",
-    "octokit": "^4.0.2",
-    "openai": "^4.73.1",
+    "lucide-react": "^0.511.0",
+    "next": "15.5.15",
+    "next-auth": "^4.24.14",
+    "openai": "^6.34.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-hook-form": "^7.53.2",
-    "tailwind-merge": "^2.5.4",
-    "zod": "^3.23.8"
+    "react-hot-toast": "^2.6.0",
+    "stripe": "^22.0.2",
+    "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {
-    "@types/node": "^22.9.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.49",
-    "tailwindcss": "^4.0.0",
-    "typescript": "^5.7.2",
-    "@tailwindcss/postcss": "^4.0.0"
+    "@tailwindcss/postcss": "^4.1.16",
+    "@types/node": "^24.7.2",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "tailwindcss": "^4.1.16",
+    "typescript": "^5.9.3"
   }
 }

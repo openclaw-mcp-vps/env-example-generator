@@ -1,176 +1,203 @@
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, FileCode2, Github, Sparkles, Zap } from "lucide-react";
-import { PricingCard } from "@/components/PricingCard";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { ArrowRight, Github, ScanSearch, Sparkles, Users } from "lucide-react";
+import { PricingCard } from "@/components/pricing-card";
 
-const faqItems = [
+const problems = [
   {
-    question: "Will it work on private repositories?",
-    answer:
-      "Yes. Connect GitHub with OAuth, and the scanner will use your token to read private files with your existing repo permissions."
+    title: "Stale .env.example files break first-run setup",
+    description:
+      "New contributors clone your repo, run install, and hit immediate runtime errors because required variables are undocumented."
   },
   {
-    question: "How accurate are environment variable descriptions?",
-    answer:
-      "Descriptions combine static code context and OpenAI analysis. You can still edit wording before committing the generated file."
+    title: "Maintainers spend time answering the same setup questions",
+    description:
+      "Each release adds integrations, but docs lag behind. The support burden lands on maintainers and slows shipping."
   },
   {
-    question: "Do you store my repository code?",
-    answer:
-      "No full clone is persisted. Files are streamed for scanning and only variable metadata is returned to your session."
+    title: "Hidden env dependencies create fragile deployments",
+    description:
+      "Variables buried in feature flags or edge routes only fail in production when no one expected them."
+  }
+];
+
+const faq = [
+  {
+    q: "Can it scan private repositories?",
+    a: "Yes. Connect GitHub on the dashboard and the scanner uses your OAuth token to inspect repositories your account can access."
   },
   {
-    question: "Can I use it for monorepos?",
-    answer:
-      "Yes. The scanner walks the repository tree and finds env usage across packages and services."
+    q: "How are descriptions generated?",
+    a: "The app sends variable names plus nearby code snippets to OpenAI and asks for maintainer-focused descriptions. If no API key is configured, it falls back to deterministic heuristics."
+  },
+  {
+    q: "Does this replace human review?",
+    a: "No. It accelerates the first draft and catches missing variables, but maintainers should still review final descriptions before commit."
+  },
+  {
+    q: "How is paid access handled?",
+    a: "After Stripe checkout, webhook-confirmed purchase emails can unlock access in-browser, and scanning APIs require a signed paid cookie."
   }
 ];
 
 export default function HomePage() {
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-      <header className="flex items-center justify-between border-b border-[#263041] pb-6">
-        <div className="flex items-center gap-3">
-          <div className="rounded-md border border-[#2f6f3e] bg-[#132418] p-2">
-            <FileCode2 className="h-5 w-5 text-[#7ee787]" />
-          </div>
-          <div>
-            <p className="text-sm text-[#9da7b5]">devtools</p>
-            <h1 className="text-lg font-semibold">Env Example Generator</h1>
-          </div>
-        </div>
-        <Link href="/dashboard" className="text-sm text-[#7ee787] transition hover:text-[#9ff0ab]">
-          Open dashboard
-        </Link>
-      </header>
+    <main className="relative overflow-x-hidden">
+      <div className="pointer-events-none absolute inset-0 -z-10">
+        <div className="absolute left-1/2 top-0 h-[450px] w-[650px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
+        <div className="absolute bottom-0 right-[-120px] h-[400px] w-[400px] rounded-full bg-cyan-500/10 blur-3xl" />
+      </div>
 
-      <section className="grid gap-8 py-14 lg:grid-cols-[1.2fr_0.8fr] lg:items-start">
-        <div>
-          <div className="mb-5 inline-flex items-center rounded-full border border-[#2f6f3e] bg-[#132418] px-3 py-1 text-xs font-medium text-[#7ee787]">
-            onboarding DX for open-source maintainers
+      <section className="mx-auto max-w-6xl px-6 pb-20 pt-10 md:pt-16">
+        <header className="mb-16 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-2">
+              <ScanSearch className="h-5 w-5 text-emerald-400" />
+            </div>
+            <p className="text-sm font-semibold tracking-wide text-zinc-200">Env Example Generator</p>
           </div>
-          <h2 className="max-w-2xl text-4xl font-semibold tracking-tight sm:text-5xl">
-            Scan your repo, detect every <code className="text-[#7ee787]">process.env.*</code>,
-            and publish a complete <code className="text-[#7ee787]">.env.example</code> in minutes.
-          </h2>
-          <p className="mt-5 max-w-xl text-base leading-7 text-[#9da7b5]">
-            Most contributor setup failures happen because environment variables are missing or
-            undocumented. This tool reads your codebase, finds every referenced key, and writes a
-            practical <code>.env.example</code> with AI-generated descriptions so new contributors can
-            run your project without guesswork.
-          </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link href="/dashboard">
-              <Button size="lg">
-                Generate my .env.example <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/dashboard"
+              className="inline-flex h-10 items-center rounded-lg border border-zinc-700 px-4 text-sm font-semibold text-zinc-100 hover:bg-zinc-900"
+            >
+              Open Dashboard
             </Link>
-            <a
-              href="#pricing"
-              className="inline-flex items-center rounded-md border border-[#263041] px-4 py-2 text-sm text-[#d1d7de] transition hover:bg-[#161b22]"
-            >
-              View pricing
-            </a>
+          </div>
+        </header>
+
+        <div className="grid gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
+          <div>
+            <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/70 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-zinc-300">
+              <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+              Better onboarding for open-source maintainers
+            </p>
+            <h1 className="text-4xl font-bold leading-tight text-zinc-50 md:text-6xl">
+              Ship a complete <span className="text-emerald-400">.env.example</span> in minutes, not guesswork.
+            </h1>
+            <p className="mt-6 max-w-2xl text-lg leading-relaxed text-zinc-300">
+              Paste a GitHub URL or connect your account. We scan real source files for `process.env.*` usage,
+              dedupe variables, and generate contributor-ready descriptions so your setup docs stop drifting.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link
+                href="/dashboard"
+                className="inline-flex h-11 items-center gap-2 rounded-lg bg-emerald-500 px-5 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400"
+              >
+                Generate My .env.example
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <a
+                href="#pricing"
+                className="inline-flex h-11 items-center rounded-lg border border-zinc-700 px-5 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-900"
+              >
+                See Pricing
+              </a>
+            </div>
+            <div className="mt-8 grid gap-4 text-sm text-zinc-300 sm:grid-cols-3">
+              <p className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2">No repo cloning required</p>
+              <p className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2">Private repo support</p>
+              <p className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2">AI-assisted variable docs</p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5 shadow-2xl shadow-black/20">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">Sample Output</p>
+            <pre className="overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-xs leading-6 text-zinc-200">
+{`# Generated by Env Example Generator
+# Public API base URL used by browser requests.
+NEXT_PUBLIC_API_URL=
+
+# Secret used to verify webhook signatures from Stripe.
+STRIPE_WEBHOOK_SECRET=
+
+# Token used for authenticated GitHub API access.
+GITHUB_TOKEN=`}
+            </pre>
           </div>
         </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-xl">What maintainers fix first</CardTitle>
-            <CardDescription>
-              Faster first contribution flow, fewer setup questions, and cleaner issue triage.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 text-sm text-[#d1d7de]">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#3fb950]" />
-              <p>Catch stale keys before release and avoid broken README setup docs.</p>
-            </div>
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#3fb950]" />
-              <p>Generate consistent variable descriptions for internal and external contributors.</p>
-            </div>
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#3fb950]" />
-              <p>Support public and private repos through GitHub OAuth permissions.</p>
-            </div>
-          </CardContent>
-        </Card>
       </section>
 
-      <section className="grid gap-4 pb-14 sm:grid-cols-2 lg:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Github className="h-4 w-4 text-[#7ee787]" /> 1) Connect or paste URL
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-[#9da7b5]">
-            Paste <code>owner/repo</code> for public repos or connect GitHub to scan private code.
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Zap className="h-4 w-4 text-[#7ee787]" /> 2) Scan all env usages
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-[#9da7b5]">
-            We inspect source files for direct and bracketed <code>process.env</code> references.
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="h-4 w-4 text-[#7ee787]" /> 3) Generate and copy
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-[#9da7b5]">
-            AI writes short descriptions and outputs a complete <code>.env.example</code> ready for
-            commit.
-          </CardContent>
-        </Card>
-      </section>
-
-      <section id="pricing" className="grid gap-8 border-y border-[#263041] py-14 lg:grid-cols-[1fr_1fr]">
-        <div className="space-y-3">
-          <h3 className="text-2xl font-semibold">Simple pricing for maintainers and small teams</h3>
-          <p className="max-w-lg text-sm leading-7 text-[#9da7b5]">
-            This is a niche DX tool with a tiny wedge price: cheap enough for solo maintainers,
-            predictable for teams running many repos.
-          </p>
-          <ul className="space-y-2 text-sm text-[#d1d7de]">
-            <li className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-[#3fb950]" /> $2 one-time personal license
-            </li>
-            <li className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-[#3fb950]" /> $7/mo team license
-            </li>
-            <li className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-[#3fb950]" /> Unlimited scans and generation
-            </li>
-          </ul>
+      <section className="mx-auto max-w-6xl px-6 pb-16">
+        <div className="mb-8 flex items-center gap-2">
+          <Users className="h-4 w-4 text-emerald-400" />
+          <h2 className="text-2xl font-bold text-zinc-50">The Problem This Solves</h2>
         </div>
-        <PricingCard compact />
-      </section>
-
-      <section className="py-14">
-        <h3 className="mb-6 text-2xl font-semibold">FAQ</h3>
-        <div className="space-y-3">
-          {faqItems.map((item) => (
-            <details
-              key={item.question}
-              className="group rounded-lg border border-[#263041] bg-[#111827] p-4"
-            >
-              <summary className="cursor-pointer list-none text-sm font-medium text-[#d1d7de]">
-                {item.question}
-              </summary>
-              <p className="mt-3 text-sm leading-7 text-[#9da7b5]">{item.answer}</p>
-            </details>
+        <div className="grid gap-4 md:grid-cols-3">
+          {problems.map((problem) => (
+            <article key={problem.title} className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+              <h3 className="mb-2 text-lg font-semibold text-zinc-100">{problem.title}</h3>
+              <p className="text-sm leading-relaxed text-zinc-300">{problem.description}</p>
+            </article>
           ))}
         </div>
       </section>
+
+      <section className="mx-auto max-w-6xl px-6 pb-16">
+        <h2 className="mb-8 text-2xl font-bold text-zinc-50">How It Works</h2>
+        <div className="grid gap-4 md:grid-cols-3">
+          <article className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-emerald-400">Step 1</p>
+            <h3 className="mb-2 text-lg font-semibold text-zinc-100">Provide Repository Access</h3>
+            <p className="text-sm text-zinc-300">
+              Paste a public repo URL or connect GitHub to scan private codebases with your account permissions.
+            </p>
+          </article>
+          <article className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-emerald-400">Step 2</p>
+            <h3 className="mb-2 text-lg font-semibold text-zinc-100">Static Scan + Deduplication</h3>
+            <p className="text-sm text-zinc-300">
+              The scanner traverses repo files, extracts every environment variable reference, and merges duplicates.
+            </p>
+          </article>
+          <article className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-emerald-400">Step 3</p>
+            <h3 className="mb-2 text-lg font-semibold text-zinc-100">Generate Commit-Ready Output</h3>
+            <p className="text-sm text-zinc-300">
+              OpenAI drafts practical descriptions from usage snippets, then you copy the generated `.env.example`.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="pricing" className="mx-auto max-w-3xl px-6 pb-16">
+        <h2 className="mb-4 text-center text-2xl font-bold text-zinc-50">Simple Pricing for Maintainers</h2>
+        <p className="mb-8 text-center text-zinc-300">
+          Pay once to unlock quickly, or choose a low monthly team license for ongoing shared maintenance.
+        </p>
+        <PricingCard />
+      </section>
+
+      <section className="mx-auto max-w-4xl px-6 pb-24">
+        <h2 className="mb-6 text-2xl font-bold text-zinc-50">FAQ</h2>
+        <div className="space-y-4">
+          {faq.map((item) => (
+            <article key={item.q} className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+              <h3 className="mb-2 font-semibold text-zinc-100">{item.q}</h3>
+              <p className="text-sm leading-relaxed text-zinc-300">{item.a}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <footer className="border-t border-zinc-800 py-8">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-6 text-sm text-zinc-400 md:flex-row">
+          <p>Env Example Generator helps open-source maintainers ship cleaner setup docs.</p>
+          <div className="flex items-center gap-4">
+            <a
+              href="https://github.com"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 hover:text-zinc-200"
+            >
+              <Github className="h-4 w-4" />
+              GitHub
+            </a>
+            <Link href="/dashboard" className="hover:text-zinc-200">
+              Dashboard
+            </Link>
+          </div>
+        </div>
+      </footer>
     </main>
   );
 }

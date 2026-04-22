@@ -1,49 +1,58 @@
-import type { Metadata } from "next";
-import type { ReactNode } from "react";
-import { Providers } from "@/components/providers";
+import type { Metadata, Viewport } from "next";
+import { Space_Grotesk } from "next/font/google";
 import "@/app/globals.css";
+import { AppToaster } from "@/components/app-toaster";
+
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-space-grotesk"
+});
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://env-example-generator.vercel.app"),
+  metadataBase: new URL("https://env-example-generator.app"),
   title: {
     default: "Env Example Generator",
     template: "%s | Env Example Generator"
   },
   description:
-    "Scan any GitHub repository for process.env usage and generate a complete .env.example with clear AI-generated variable descriptions.",
+    "Scan any GitHub repo for process.env references and ship a complete, accurate .env.example with AI-generated descriptions.",
   keywords: [
+    "env example generator",
     "dotenv",
-    "env example",
-    "developer tools",
-    "open source",
-    "github",
-    "next.js"
+    "developer experience",
+    "open source tooling",
+    "github scanner"
   ],
   openGraph: {
-    type: "website",
     title: "Env Example Generator",
     description:
-      "Automate .env.example generation from real code usage so contributors can run your project in minutes.",
-    url: "https://env-example-generator.vercel.app",
-    siteName: "Env Example Generator"
+      "Automatically build a useful .env.example file from real code usage. Perfect for open-source maintainer onboarding.",
+    url: "https://env-example-generator.app",
+    siteName: "Env Example Generator",
+    type: "website"
   },
   twitter: {
     card: "summary_large_image",
     title: "Env Example Generator",
     description:
-      "Generate complete .env.example files by scanning process.env usage across your repo."
+      "Scan a repo, detect environment variables, and generate a contributor-ready .env.example instantly."
   }
 };
 
-type RootLayoutProps = {
-  children: ReactNode;
+export const viewport: Viewport = {
+  themeColor: "#0d1117"
 };
 
-export default function RootLayout({ children }: RootLayoutProps) {
+export default function RootLayout({
+  children
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen bg-[#0d1117] text-[#e6edf3] antialiased">
-        <Providers>{children}</Providers>
+    <html lang="en" className={`${spaceGrotesk.variable} dark`}>
+      <body className="min-h-screen bg-[#0d1117] text-zinc-100 antialiased">
+        {children}
+        <AppToaster />
       </body>
     </html>
   );

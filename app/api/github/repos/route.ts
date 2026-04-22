@@ -1,25 +1,26 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { listRepositories } from "@/lib/github";
+import { listUserRepos } from "@/lib/github";
+import { PAYWALL_COOKIE_NAME, hasValidPaidCookieValue } from "@/lib/paywall";
 
-export const dynamic = "force-dynamic";
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const paidCookie = request.cookies.get(PAYWALL_COOKIE_NAME)?.value;
+  if (!hasValidPaidCookieValue(paidCookie)) {
+    return NextResponse.json({ error: "Paid access is required." }, { status: 402 });
+  }
 
-export async function GET() {
   const session = await getServerSession(authOptions);
-  const accessToken = session?.user?.accessToken;
+  const token = session?.githubAccessToken;
 
-  if (!accessToken) {
-    return NextResponse.json({ error: "GitHub auth required" }, { status: 401 });
+  if (!token) {
+    return NextResponse.json({ error: "Connect GitHub first." }, { status: 401 });
   }
 
   try {
-    const repos = await listRepositories(accessToken);
+    const repos = await listUserRepos(token);
     return NextResponse.json({ repos });
   } catch {
-    return NextResponse.json(
-      { error: "Failed to fetch repositories from GitHub" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Unable to fetch repositories from GitHub." }, { status: 500 });
   }
 }

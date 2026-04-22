@@ -1,44 +1,45 @@
-import { NextResponse } from "next/server";
-import { z } from "zod";
-import { isNoncePaid } from "@/lib/storage";
-import {
-  ACCESS_COOKIE_NAME,
-  createAccessToken,
-  getAccessCookieConfig,
-  verifyCheckoutNonce
-} from "@/lib/paywall";
+import { NextRequest, NextResponse } from "next/server";
+import { createPaidCookieValue, PAYWALL_COOKIE_NAME } from "@/lib/paywall";
+import { hasPaidEmail } from "@/lib/paywall-store";
 
-const bodySchema = z.object({
-  checkoutNonce: z.string().min(12)
-});
+interface Body {
+  email?: string;
+}
 
-export const dynamic = "force-dynamic";
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export async function POST(request: Request) {
-  const payload = await request.json().catch(() => null);
-  const parsed = bodySchema.safeParse(payload);
-
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid unlock request" }, { status: 400 });
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  let body: Body;
+  try {
+    body = (await request.json()) as Body;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const checkoutNonce = parsed.data.checkoutNonce;
-
-  if (!verifyCheckoutNonce(checkoutNonce)) {
-    return NextResponse.json({ error: "Expired checkout token" }, { status: 400 });
+  const email = body.email?.trim().toLowerCase();
+  if (!email || !EMAIL_REGEX.test(email)) {
+    return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
   }
 
-  const paid = await isNoncePaid(checkoutNonce);
+  const paid = await hasPaidEmail(email);
   if (!paid) {
     return NextResponse.json(
-      { error: "Payment is not confirmed yet" },
-      { status: 409 }
+      {
+        error:
+          "No completed Stripe purchase found for this email yet. Confirm the checkout succeeded and webhook delivery is configured."
+      },
+      { status: 403 }
     );
   }
 
-  const response = NextResponse.json({ status: "ok" });
-  response.cookies.set(ACCESS_COOKIE_NAME, createAccessToken("lemonsqueezy"),
-    getAccessCookieConfig());
+  const response = NextResponse.json({ unlocked: true });
+  response.cookies.set(PAYWALL_COOKIE_NAME, createPaidCookieValue(email), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30
+  });
 
   return response;
 }

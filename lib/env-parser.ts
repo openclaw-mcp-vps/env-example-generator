@@ -1,149 +1,112 @@
-export type EnvMatch = {
-  name: string;
+export interface EnvOccurrence {
   filePath: string;
   line: number;
   snippet: string;
-  optional: boolean;
-};
-
-export type EnvVariableSummary = {
-  name: string;
-  required: boolean;
-  usageCount: number;
-  files: string[];
-  snippets: Array<{
-    filePath: string;
-    line: number;
-    snippet: string;
-  }>;
-};
-
-const DOT_REGEX = /\bprocess\.env\.([A-Z][A-Z0-9_]+)/g;
-const BRACKET_REGEX = /\bprocess\.env\[['"]([A-Z][A-Z0-9_]+)['"]\]/g;
-
-function isLikelyOptional(line: string): boolean {
-  return /(\?\?|\|\||default|fallback)/i.test(line);
 }
 
-function collectLineMatches(
-  lineText: string,
-  lineNumber: number,
-  filePath: string,
-  regex: RegExp
-): EnvMatch[] {
-  const results: EnvMatch[] = [];
-  regex.lastIndex = 0;
+export interface EnvVariable {
+  name: string;
+  occurrences: EnvOccurrence[];
+}
 
-  for (const match of lineText.matchAll(regex)) {
-    const name = match[1];
-    if (!name) {
-      continue;
+const directPattern = /process\.env(?:\?\.)?\.([A-Z0-9_]+)/g;
+const bracketPattern = /process\.env(?:\?\.)?\[['"]([A-Z0-9_]+)['"]\]/g;
+const destructurePattern = /\{([^}]+)\}\s*=\s*process\.env\b/g;
+
+function extractFromDestructuring(line: string): string[] {
+  const vars: string[] = [];
+  for (const match of line.matchAll(destructurePattern)) {
+    const chunk = match[1] ?? "";
+    const names = chunk
+      .split(",")
+      .map((part) => part.trim())
+      .map((part) => part.split(":")[0]?.trim())
+      .map((part) => part?.replace(/^[.]{3}/, ""))
+      .filter((part): part is string => Boolean(part) && /^[A-Z0-9_]+$/.test(part));
+
+    vars.push(...names);
+  }
+  return vars;
+}
+
+export function extractEnvReferencesFromContent(content: string, filePath: string): EnvVariable[] {
+  const variableMap = new Map<string, EnvOccurrence[]>();
+  const lines = content.split(/\r?\n/);
+
+  lines.forEach((line, index) => {
+    const names = new Set<string>();
+
+    for (const match of line.matchAll(directPattern)) {
+      if (match[1]) {
+        names.add(match[1]);
+      }
     }
 
-    results.push({
-      name,
-      filePath,
-      line: lineNumber,
-      snippet: lineText.trim().slice(0, 240),
-      optional: isLikelyOptional(lineText)
-    });
-  }
+    for (const match of line.matchAll(bracketPattern)) {
+      if (match[1]) {
+        names.add(match[1]);
+      }
+    }
 
-  return results;
-}
+    for (const name of extractFromDestructuring(line)) {
+      names.add(name);
+    }
 
-export function extractEnvMatches(content: string, filePath: string): EnvMatch[] {
-  const lines = content.split(/\r?\n/);
-  const matches: EnvMatch[] = [];
+    if (names.size === 0) {
+      return;
+    }
 
-  lines.forEach((lineText, index) => {
-    const lineNumber = index + 1;
-    matches.push(...collectLineMatches(lineText, lineNumber, filePath, DOT_REGEX));
-    matches.push(...collectLineMatches(lineText, lineNumber, filePath, BRACKET_REGEX));
+    for (const name of names) {
+      const current = variableMap.get(name) ?? [];
+      current.push({
+        filePath,
+        line: index + 1,
+        snippet: line.trim().slice(0, 220)
+      });
+      variableMap.set(name, current);
+    }
   });
 
-  return matches;
+  return [...variableMap.entries()]
+    .map(([name, occurrences]) => ({ name, occurrences }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function summarizeEnvMatches(matches: EnvMatch[]): EnvVariableSummary[] {
-  const grouped = new Map<string, EnvVariableSummary>();
-
-  for (const match of matches) {
-    const current = grouped.get(match.name);
-
-    if (!current) {
-      grouped.set(match.name, {
-        name: match.name,
-        required: !match.optional,
-        usageCount: 1,
-        files: [match.filePath],
-        snippets: [
-          {
-            filePath: match.filePath,
-            line: match.line,
-            snippet: match.snippet
-          }
-        ]
-      });
-      continue;
-    }
-
-    current.required = current.required || !match.optional;
-    current.usageCount += 1;
-
-    if (!current.files.includes(match.filePath)) {
-      current.files.push(match.filePath);
-    }
-
-    if (current.snippets.length < 4) {
-      current.snippets.push({
-        filePath: match.filePath,
-        line: match.line,
-        snippet: match.snippet
-      });
-    }
-  }
-
-  return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name));
-}
-
-export function heuristicDescription(variableName: string): string {
-  if (variableName.endsWith("_URL") || variableName.includes("DATABASE_URL")) {
-    return "Connection URL used to reach an external service or database.";
-  }
-
-  if (variableName.includes("SECRET") || variableName.includes("TOKEN")) {
-    return "Sensitive credential used for authentication or signing.";
-  }
-
-  if (variableName.includes("KEY")) {
-    return "API key used to authenticate requests to a third-party service.";
-  }
-
-  if (variableName.includes("PORT")) {
-    return "Port number the service listens on in local or production environments.";
-  }
-
-  if (variableName.startsWith("NEXT_PUBLIC_")) {
-    return "Client-exposed configuration available in browser-side Next.js code.";
-  }
-
-  return "Runtime configuration value required by application code paths.";
-}
-
-export function renderEnvExample(
-  variables: EnvVariableSummary[],
-  descriptions: Record<string, string>
-): string {
-  const lines: string[] = [];
+export function mergeEnvVariables(variables: EnvVariable[]): EnvVariable[] {
+  const merged = new Map<string, EnvOccurrence[]>();
 
   for (const variable of variables) {
-    const description = descriptions[variable.name] ?? heuristicDescription(variable.name);
-    const requirement = variable.required ? "required" : "optional";
-    lines.push(`# ${description} (${requirement})`);
+    const existing = merged.get(variable.name) ?? [];
+    existing.push(...variable.occurrences);
+    merged.set(variable.name, existing);
+  }
+
+  return [...merged.entries()]
+    .map(([name, occurrences]) => ({
+      name,
+      occurrences: occurrences.slice(0, 8)
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function buildEnvExample(
+  variables: EnvVariable[],
+  descriptions: Record<string, string>
+): string {
+  const lines: string[] = [
+    "# Generated by Env Example Generator",
+    "# Review before committing secrets or environment-specific values.",
+    ""
+  ];
+
+  for (const variable of variables) {
+    const description = descriptions[variable.name];
+    if (description) {
+      lines.push(`# ${description}`);
+    }
     lines.push(`${variable.name}=`);
     lines.push("");
   }
 
-  return lines.join("\n").trimEnd() + "\n";
+  return lines.join("\n").trim() + "\n";
 }

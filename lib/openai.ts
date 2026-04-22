@@ -1,80 +1,104 @@
 import OpenAI from "openai";
-import {
-  type EnvVariableSummary,
-  heuristicDescription
-} from "@/lib/env-parser";
+import type { EnvVariable } from "@/lib/env-parser";
 
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+const MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
 
-type DescriptionMap = Record<string, string>;
+function fallbackDescription(name: string): string {
+  const lowered = name.toLowerCase();
 
-function fallbackDescriptions(variables: EnvVariableSummary[]): DescriptionMap {
-  return Object.fromEntries(
-    variables.map((variable) => [variable.name, heuristicDescription(variable.name)])
-  );
+  if (lowered.includes("url")) {
+    return "Base URL or endpoint used by this application integration.";
+  }
+  if (lowered.includes("secret")) {
+    return "Sensitive secret used for request signing or secure verification.";
+  }
+  if (lowered.includes("token")) {
+    return "Authentication token used when calling an external service API.";
+  }
+  if (lowered.endsWith("_key") || lowered.includes("apikey") || lowered.includes("api_key")) {
+    return "API key used to authenticate requests with a third-party provider.";
+  }
+  if (lowered.includes("port")) {
+    return "Port number the service binds to or connects through.";
+  }
+  if (lowered.includes("host")) {
+    return "Hostname or domain name required for a service connection.";
+  }
+  if (lowered.includes("database") || lowered.includes("db")) {
+    return "Database connection configuration value required at runtime.";
+  }
+
+  return "Runtime configuration value required by the app in one or more execution paths.";
 }
 
-export async function describeVariablesWithAI(
-  repo: string,
-  variables: EnvVariableSummary[]
-): Promise<DescriptionMap> {
-  if (!process.env.OPENAI_API_KEY || variables.length === 0) {
-    return fallbackDescriptions(variables);
+function buildFallback(variables: EnvVariable[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const variable of variables) {
+    map[variable.name] = fallbackDescription(variable.name);
+  }
+  return map;
+}
+
+export async function generateDescriptions(
+  variables: EnvVariable[]
+): Promise<Record<string, string>> {
+  if (variables.length === 0) {
+    return {};
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    return buildFallback(variables);
   }
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const fallback = buildFallback(variables);
 
-  const input = variables.map((variable) => ({
+  const payload = variables.map((variable) => ({
     name: variable.name,
-    required: variable.required,
-    files: variable.files.slice(0, 3),
-    snippets: variable.snippets
+    examples: variable.occurrences.slice(0, 3).map((occurrence) => ({
+      file: occurrence.filePath,
+      line: occurrence.line,
+      snippet: occurrence.snippet
+    }))
   }));
 
-  const completion = await client.chat.completions.create({
-    model: MODEL,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content:
-          "You generate concise, concrete environment variable descriptions for software maintainers. Output a JSON object mapping variable names to one-sentence descriptions."
-      },
-      {
-        role: "user",
-        content: JSON.stringify({
-          repo,
-          variables: input,
-          constraints: {
-            style: "Clear, specific, no fluff.",
-            maxWords: 18,
-            includeSensitiveWarningForSecrets: true
-          }
-        })
-      }
-    ],
-    temperature: 0.2
-  });
-
-  const raw = completion.choices[0]?.message?.content;
-  if (!raw) {
-    return fallbackDescriptions(variables);
-  }
-
   try {
-    const parsed = JSON.parse(raw) as DescriptionMap;
-    const output: DescriptionMap = {};
+    const completion = await client.chat.completions.create({
+      model: MODEL,
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are an expert developer tooling assistant. For each environment variable, write one concise sentence that helps maintainers understand purpose and usage context. Keep descriptions practical and specific to code snippets."
+        },
+        {
+          role: "user",
+          content: `Return JSON in this shape: {\"descriptions\": [{\"name\": string, \"description\": string}]}. Variables: ${JSON.stringify(payload)}`
+        }
+      ]
+    });
 
-    for (const variable of variables) {
-      const modelText = parsed[variable.name]?.trim();
-      output[variable.name] =
-        modelText && modelText.length > 0
-          ? modelText
-          : heuristicDescription(variable.name);
+    const raw = completion.choices[0]?.message?.content;
+    if (!raw) {
+      return fallback;
     }
 
-    return output;
+    const parsed = JSON.parse(raw) as {
+      descriptions?: Array<{ name?: string; description?: string }>;
+    };
+
+    const mapped = { ...fallback };
+    for (const item of parsed.descriptions ?? []) {
+      if (!item.name || !item.description) {
+        continue;
+      }
+      mapped[item.name] = item.description.trim();
+    }
+
+    return mapped;
   } catch {
-    return fallbackDescriptions(variables);
+    return fallback;
   }
 }

@@ -1,70 +1,56 @@
-import { NextResponse } from "next/server";
-import { z } from "zod";
-import {
-  type EnvVariableSummary,
-  renderEnvExample
-} from "@/lib/env-parser";
-import { describeVariablesWithAI } from "@/lib/openai";
-import { ACCESS_COOKIE_NAME, verifyAccessToken } from "@/lib/paywall";
+import { NextRequest, NextResponse } from "next/server";
+import { buildEnvExample, type EnvVariable } from "@/lib/env-parser";
+import { generateDescriptions } from "@/lib/openai";
+import { PAYWALL_COOKIE_NAME, hasValidPaidCookieValue } from "@/lib/paywall";
 
-const snippetSchema = z.object({
-  filePath: z.string(),
-  line: z.number(),
-  snippet: z.string()
-});
+interface Body {
+  variables?: EnvVariable[];
+}
 
-const variableSchema = z.object({
-  name: z.string().regex(/^[A-Z][A-Z0-9_]+$/),
-  required: z.boolean(),
-  usageCount: z.number(),
-  files: z.array(z.string()),
-  snippets: z.array(snippetSchema)
-});
-
-const bodySchema = z.object({
-  repository: z.string().min(3),
-  variables: z.array(variableSchema)
-});
-
-export const dynamic = "force-dynamic";
-
-export async function POST(request: Request) {
-  const accessCookie = request.headers
-    .get("cookie")
-    ?.split(";")
-    .map((chunk) => chunk.trim())
-    .find((chunk) => chunk.startsWith(`${ACCESS_COOKIE_NAME}=`))
-    ?.split("=")[1];
-
-  if (!verifyAccessToken(accessCookie)) {
-    return NextResponse.json(
-      { error: "Payment required before generating .env.example." },
-      { status: 402 }
-    );
+function isValidVariable(variable: unknown): variable is EnvVariable {
+  if (!variable || typeof variable !== "object") {
+    return false;
   }
 
-  const payload = await request.json().catch(() => null);
-  const parsed = bodySchema.safeParse(payload);
+  const candidate = variable as EnvVariable;
+  return (
+    typeof candidate.name === "string" &&
+    Array.isArray(candidate.occurrences) &&
+    candidate.occurrences.every(
+      (occurrence) =>
+        occurrence &&
+        typeof occurrence.filePath === "string" &&
+        typeof occurrence.line === "number" &&
+        typeof occurrence.snippet === "string"
+    )
+  );
+}
 
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid generation payload" }, { status: 400 });
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  const paidCookie = request.cookies.get(PAYWALL_COOKIE_NAME)?.value;
+  if (!hasValidPaidCookieValue(paidCookie)) {
+    return NextResponse.json({ error: "Paid access is required." }, { status: 402 });
   }
 
-  const variables: EnvVariableSummary[] = parsed.data.variables;
+  let body: Body;
+  try {
+    body = (await request.json()) as Body;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  const rawVariables = body.variables;
+  if (!rawVariables || !Array.isArray(rawVariables)) {
+    return NextResponse.json({ error: "A variables array is required." }, { status: 400 });
+  }
+
+  const variables = rawVariables.filter(isValidVariable).sort((a, b) => a.name.localeCompare(b.name));
 
   try {
-    const descriptions = await describeVariablesWithAI(parsed.data.repository, variables);
-    const envExample = renderEnvExample(variables, descriptions);
-
-    return NextResponse.json({
-      repository: parsed.data.repository,
-      descriptions,
-      envExample
-    });
+    const descriptions = await generateDescriptions(variables);
+    const envExample = buildEnvExample(variables, descriptions);
+    return NextResponse.json({ descriptions, envExample });
   } catch {
-    return NextResponse.json(
-      { error: "Failed to generate environment file output" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Generation failed." }, { status: 500 });
   }
 }

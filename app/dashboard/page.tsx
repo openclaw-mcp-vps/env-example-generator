@@ -1,52 +1,124 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
-import { ArrowLeft, ShieldCheck } from "lucide-react";
-import { PricingCard } from "@/components/PricingCard";
-import { RepoScanner } from "@/components/RepoScanner";
+import { getServerSession } from "next-auth";
+import { Github, Lock, ScanSearch } from "lucide-react";
+import { authOptions, isGithubAuthConfigured } from "@/lib/auth";
+import { PAYWALL_COOKIE_NAME, hasValidPaidCookieValue } from "@/lib/paywall";
+import { PricingCard } from "@/components/pricing-card";
+import { RepoScanner } from "@/components/repo-scanner";
+import { UnlockForm } from "@/components/unlock-form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ACCESS_COOKIE_NAME, verifyAccessToken } from "@/lib/paywall";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  const session = await getServerSession(authOptions);
   const cookieStore = await cookies();
-  const accessValue = cookieStore.get(ACCESS_COOKIE_NAME)?.value;
-  const hasAccess = verifyAccessToken(accessValue);
+  const paidCookie = cookieStore.get(PAYWALL_COOKIE_NAME)?.value;
+  const isPaid = hasValidPaidCookieValue(paidCookie);
+  const githubConnected = Boolean(session?.githubAccessToken);
 
   return (
-    <main className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
-      <header className="space-y-3">
-        <Link href="/" className="inline-flex items-center gap-2 text-sm text-[#9da7b5] hover:text-[#d1d7de]">
-          <ArrowLeft className="h-4 w-4" /> Back to landing
+    <main className="mx-auto max-w-6xl px-6 py-10">
+      <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-2">
+            <ScanSearch className="h-5 w-5 text-emerald-400" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-zinc-50">Dashboard</h1>
+            <p className="text-sm text-zinc-400">Scan repos and generate an accurate .env.example file.</p>
+          </div>
+        </div>
+        <Link
+          href="/"
+          className="inline-flex h-10 items-center rounded-lg border border-zinc-700 px-4 text-sm font-semibold text-zinc-100 hover:bg-zinc-900"
+        >
+          Back to Landing
         </Link>
-        <h1 className="text-3xl font-semibold">Dashboard</h1>
-        <p className="text-sm text-[#9da7b5]">
-          Scan repositories, generate a complete <code>.env.example</code>, and copy results into your
-          project.
-        </p>
       </header>
 
-      {hasAccess ? (
-        <RepoScanner />
+      <section className="mb-6 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Github className="h-5 w-5 text-zinc-300" />
+              GitHub Connection
+            </CardTitle>
+            <CardDescription>
+              Connect GitHub for private repo access and faster repo selection from your account.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {!isGithubAuthConfigured ? (
+              <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-200">
+                GitHub OAuth is not configured yet. Add `GITHUB_ID` and `GITHUB_SECRET` in your environment.
+              </p>
+            ) : githubConnected ? (
+              <>
+                <p className="text-zinc-200">
+                  Connected as <span className="font-semibold">@{session?.user?.login ?? session?.user?.name}</span>
+                </p>
+                <a
+                  href="/api/auth/signout?callbackUrl=/dashboard"
+                  className="inline-flex h-10 items-center rounded-lg border border-zinc-700 px-4 font-semibold text-zinc-100 hover:bg-zinc-900"
+                >
+                  Disconnect GitHub
+                </a>
+              </>
+            ) : (
+              <a
+                href="/api/auth/signin/github?callbackUrl=/dashboard"
+                className="inline-flex h-10 items-center rounded-lg border border-zinc-700 px-4 font-semibold text-zinc-100 hover:bg-zinc-900"
+              >
+                Connect GitHub
+              </a>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Lock className="h-5 w-5 text-zinc-300" />
+              Access Status
+            </CardTitle>
+            <CardDescription>
+              Scanning APIs are protected by a signed browser cookie set after purchase verification.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isPaid ? (
+              <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+                Paid access is active in this browser.
+              </p>
+            ) : (
+              <p className="rounded-lg border border-zinc-700 bg-zinc-950 p-3 text-sm text-zinc-300">
+                Buy access, then verify using the purchase email to unlock the scanner.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
+      {isPaid ? (
+        <RepoScanner githubConnected={githubConnected} githubLogin={session?.user?.login} />
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+        <section className="grid gap-6 lg:grid-cols-2">
+          <PricingCard />
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-[#7ee787]" /> Feature locked
-              </CardTitle>
+              <CardTitle>Unlock This Browser</CardTitle>
               <CardDescription>
-                Payment is required before repository scanning is enabled in this browser.
+                Enter the same email used in Stripe checkout. The server validates it from webhook events, then sets
+                a signed cookie.
               </CardDescription>
             </CardHeader>
-            <CardContent className="text-sm text-[#d1d7de]">
-              The paywall keeps pricing sustainable for maintainers while keeping the tool cheap.
-              Complete checkout, then click <strong>Unlock after payment</strong>.
+            <CardContent>
+              <UnlockForm />
             </CardContent>
           </Card>
-
-          <PricingCard title="Unlock Scanner Access" />
-        </div>
+        </section>
       )}
     </main>
   );

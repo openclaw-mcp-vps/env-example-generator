@@ -1,207 +1,198 @@
-import { Octokit } from "octokit";
-import { extractEnvMatches, summarizeEnvMatches } from "@/lib/env-parser";
+import { Buffer } from "node:buffer";
+import { Octokit } from "@octokit/rest";
+import {
+  extractEnvReferencesFromContent,
+  mergeEnvVariables,
+  type EnvVariable
+} from "@/lib/env-parser";
 
-export type RepoReference = {
-  owner: string;
-  repo: string;
-};
+const MAX_FILES_TO_SCAN = 160;
+const MAX_BLOB_SIZE = 260_000;
 
-export type ScannedFile = {
-  path: string;
-  size: number;
-  sha: string;
-};
-
-const TEXT_FILE_EXTENSIONS = new Set([
-  ".ts",
-  ".tsx",
+const TEXT_EXTENSIONS = new Set([
   ".js",
   ".jsx",
+  ".ts",
+  ".tsx",
   ".mjs",
   ".cjs",
-  ".env",
   ".json",
+  ".env",
   ".yaml",
   ".yml",
   ".toml",
   ".ini",
-  ".md",
-  ".txt",
-  ".sh",
-  ".bash",
-  ".zsh",
-  ".go",
   ".py",
+  ".go",
   ".rb",
-  ".php",
+  ".rs",
   ".java",
   ".kt",
-  ".rs",
-  ".swift"
+  ".swift",
+  ".sh",
+  ".md",
+  ".txt"
 ]);
 
-const IGNORED_PATH_SEGMENTS = [
-  "node_modules",
-  ".git",
-  ".next",
-  "dist",
-  "build",
-  "coverage",
-  "vendor",
-  "target",
-  ".turbo"
+const EXCLUDED_PATH_PARTS = [
+  "node_modules/",
+  ".next/",
+  "dist/",
+  "build/",
+  "coverage/",
+  "vendor/",
+  "pnpm-lock.yaml",
+  "package-lock.json",
+  "yarn.lock",
+  ".min.js"
 ];
 
-function isTextCandidate(path: string): boolean {
-  if (IGNORED_PATH_SEGMENTS.some((segment) => path.split("/").includes(segment))) {
+function isLikelyTextFile(path: string): boolean {
+  const lowered = path.toLowerCase();
+  if (EXCLUDED_PATH_PARTS.some((part) => lowered.includes(part))) {
     return false;
   }
 
-  const extension = path.includes(".") ? path.slice(path.lastIndexOf(".")) : "";
-  return TEXT_FILE_EXTENSIONS.has(extension) || path.endsWith(".env.example");
+  const dot = lowered.lastIndexOf(".");
+  if (dot === -1) {
+    return false;
+  }
+
+  const extension = lowered.slice(dot);
+  return TEXT_EXTENSIONS.has(extension);
 }
 
-export function parseRepoInput(input: string): RepoReference {
-  const trimmed = input.trim();
+export interface ParsedRepoInput {
+  owner: string;
+  repo: string;
+}
 
-  if (trimmed.includes("github.com")) {
-    const url = new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
-    const parts = url.pathname.split("/").filter(Boolean);
+export function parseRepoInput(input: string): ParsedRepoInput {
+  const value = input.trim().replace(/\.git$/, "");
 
-    if (parts.length < 2) {
-      throw new Error("Repository URL must include owner and repo.");
-    }
-
+  const githubUrlMatch = value.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)(?:\/.*)?$/i);
+  if (githubUrlMatch) {
     return {
-      owner: parts[0],
-      repo: parts[1].replace(/\.git$/, "")
+      owner: githubUrlMatch[1],
+      repo: githubUrlMatch[2]
     };
   }
 
-  const split = trimmed.split("/").filter(Boolean);
-  if (split.length !== 2) {
-    throw new Error("Use format owner/repo or full GitHub URL.");
+  const shortMatch = value.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
+  if (shortMatch) {
+    return {
+      owner: shortMatch[1],
+      repo: shortMatch[2]
+    };
   }
 
-  return {
-    owner: split[0],
-    repo: split[1].replace(/\.git$/, "")
-  };
+  throw new Error("Enter a valid GitHub repository URL or owner/repo value.");
 }
 
-export function createGitHubClient(accessToken?: string): Octokit {
-  return new Octokit({ auth: accessToken });
+function createOctokit(accessToken?: string): Octokit {
+  return new Octokit(
+    accessToken
+      ? {
+          auth: accessToken
+        }
+      : undefined
+  );
 }
 
-export async function listRepositories(accessToken: string) {
-  const client = createGitHubClient(accessToken);
-  const response = await client.request("GET /user/repos", {
-    per_page: 100,
+export async function listUserRepos(accessToken: string): Promise<
+  Array<{
+    id: number;
+    fullName: string;
+    private: boolean;
+    updatedAt: string;
+  }>
+> {
+  const octokit = createOctokit(accessToken);
+  const response = await octokit.repos.listForAuthenticatedUser({
     sort: "updated",
-    affiliation: "owner,collaborator,organization_member"
+    per_page: 100,
+    visibility: "all"
   });
 
   return response.data.map((repo) => ({
     id: repo.id,
-    name: repo.name,
     fullName: repo.full_name,
     private: repo.private,
-    updatedAt: repo.updated_at,
-    defaultBranch: repo.default_branch,
-    htmlUrl: repo.html_url
+    updatedAt: repo.updated_at ?? ""
   }));
 }
 
-async function fetchRepositoryTree(
-  client: Octokit,
-  reference: RepoReference
-): Promise<ScannedFile[]> {
-  const repoMeta = await client.request("GET /repos/{owner}/{repo}", {
-    owner: reference.owner,
-    repo: reference.repo
+async function fetchBlobContent(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  sha: string
+): Promise<string | null> {
+  const blob = await octokit.git.getBlob({ owner, repo, file_sha: sha });
+  if (blob.data.encoding !== "base64") {
+    return null;
+  }
+
+  const buffer = Buffer.from(blob.data.content, "base64");
+  const text = buffer.toString("utf8");
+
+  if (text.includes("\u0000")) {
+    return null;
+  }
+
+  return text;
+}
+
+export async function scanRepositoryForEnvVars(params: {
+  repoInput: string;
+  accessToken?: string;
+}): Promise<{
+  owner: string;
+  repo: string;
+  scannedFiles: number;
+  variables: EnvVariable[];
+}> {
+  const { owner, repo } = parseRepoInput(params.repoInput);
+  const octokit = createOctokit(params.accessToken);
+
+  const repoResponse = await octokit.repos.get({ owner, repo });
+  const defaultBranch = repoResponse.data.default_branch;
+
+  const tree = await octokit.git.getTree({
+    owner,
+    repo,
+    tree_sha: defaultBranch,
+    recursive: "true"
   });
 
-  const branch = repoMeta.data.default_branch;
-  const treeResponse = await client.request(
-    "GET /repos/{owner}/{repo}/git/trees/{tree_sha}",
-    {
-      owner: reference.owner,
-      repo: reference.repo,
-      tree_sha: branch,
-      recursive: "1"
-    }
-  );
+  const files = (tree.data.tree ?? [])
+    .filter((item) => item.type === "blob" && Boolean(item.path) && Boolean(item.sha))
+    .filter((item) => isLikelyTextFile(item.path as string))
+    .filter((item) => (item.size ?? 0) < MAX_BLOB_SIZE)
+    .slice(0, MAX_FILES_TO_SCAN);
 
-  return (treeResponse.data.tree ?? [])
-    .filter((entry) => {
-      return entry.type === "blob" && Boolean(entry.path) && Boolean(entry.sha);
-    })
-    .filter((entry) => {
-      const size = entry.size ?? 0;
-      return size > 0 && size < 220_000 && isTextCandidate(entry.path);
-    })
-    .slice(0, 450)
-    .map((entry) => ({
-      path: entry.path,
-      size: entry.size ?? 0,
-      sha: entry.sha
-    }));
-}
+  const collected: EnvVariable[] = [];
 
-function decodeBlobContent(encoded: string): string {
-  return Buffer.from(encoded, "base64").toString("utf8");
-}
+  for (const item of files) {
+    const path = item.path as string;
+    const sha = item.sha as string;
 
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  worker: (item: T) => Promise<R>
-): Promise<R[]> {
-  const results: R[] = [];
-  let index = 0;
-
-  async function run(): Promise<void> {
-    while (index < items.length) {
-      const current = items[index];
-      index += 1;
-      results.push(await worker(current));
+    try {
+      const content = await fetchBlobContent(octokit, owner, repo, sha);
+      if (!content) {
+        continue;
+      }
+      const refs = extractEnvReferencesFromContent(content, path);
+      collected.push(...refs);
+    } catch {
+      continue;
     }
   }
 
-  const workers = Array.from({ length: Math.max(1, limit) }, () => run());
-  await Promise.all(workers);
-  return results;
-}
-
-export async function scanRepositoryForEnvironmentVariables(
-  repoInput: string,
-  accessToken?: string
-) {
-  const reference = parseRepoInput(repoInput);
-  const client = createGitHubClient(accessToken);
-  const files = await fetchRepositoryTree(client, reference);
-
-  const fileMatches = await mapWithConcurrency(files, 8, async (file) => {
-    try {
-      const blob = await client.request("GET /repos/{owner}/{repo}/git/blobs/{file_sha}", {
-        owner: reference.owner,
-        repo: reference.repo,
-        file_sha: file.sha
-      });
-
-      const content = decodeBlobContent(blob.data.content ?? "");
-      return extractEnvMatches(content, file.path);
-    } catch {
-      return [];
-    }
-  });
-
-  const matches = fileMatches.flat();
-  const variables = summarizeEnvMatches(matches);
-
   return {
-    repository: `${reference.owner}/${reference.repo}`,
-    scannedFileCount: files.length,
-    variables
+    owner,
+    repo,
+    scannedFiles: files.length,
+    variables: mergeEnvVariables(collected)
   };
 }
